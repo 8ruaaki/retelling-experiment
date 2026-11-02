@@ -1,0 +1,100 @@
+@import "tailwindcss";
+
+/* ============================================================
+   実験用UIガイドライン
+   - 完全モノトーン（#FFFFFF / #FAFAFA / #000000 / #333333 / #666666）
+   - フォント：メイリオ最優先
+   - グラデーション・シャドウ・アニメーション・トランジションは使用禁止
+   - 状態変化は白黒反転または太枠線（2px）のみで表現
+   ============================================================ */
+@theme {
+  --font-sans: "Meiryo", "メイリオ", "Hiragino Kaku Gothic ProN", sans-serif;
+  --font-mono: "Consolas", "Courier New", monospace;
+  --color-ink: #000000;
+  --color-ink-2: #333333;
+  --color-ink-3: #666666;
+  --color-paper: #ffffff;
+  --color-mist: #fafafa;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #ffffff;
+  color: #000000;
+  font-family: var(--font-sans);
+  font-size: 22px;
+  line-height: 1.75;
+}
+
+/* 念のため全要素でアニメーション・トランジション・影を無効化 */
+*,
+*::before,
+*::after {
+  animation: none !important;
+  transition: none !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-none px-7 py-3 text-[22px] font-bold
+      select-none cursor-pointer border-2 border-black;
+  }
+  /* 黒地に白文字（ホバーで白黒反転） */
+  .btn-primary {
+    @apply bg-black text-white hover:bg-white hover:text-black;
+  }
+  /* 白地に黒文字（ホバーで白黒反転） */
+  .btn-secondary {
+    @apply bg-white text-black hover:bg-black hover:text-white;
+  }
+  .btn:disabled,
+  .btn[aria-disabled="true"] {
+    @apply bg-white text-[#999999] border-[#cccccc] cursor-not-allowed
+      hover:bg-white hover:text-[#999999];
+  }
+  .btn:focus-visible {
+    @apply outline-2 outline-offset-2 outline-black;
+  }
+
+  .card {
+    @apply bg-white border border-black;
+  }
+  .input {
+    @apply w-full rounded-none border border-[#666666] bg-white px-4 py-2.5 text-[22px] text-black
+      placeholder:text-[#999999] focus:outline-none focus:border-2 focus:border-black focus:px-[15px] focus:py-[9px];
+  }
+  .input-error {
+    @apply border-2 border-black px-[15px] py-[9px];
+  }
+  .label {
+    @apply block text-[20px] font-bold mb-2;
+  }
+  .page-title {
+    @apply text-[32px] font-bold leading-snug;
+  }
+  .page-sub {
+    @apply text-[20px] text-[#333333] leading-relaxed mt-2;
+  }
+  .badge {
+    @apply inline-flex items-center border border-black bg-white px-4 py-1 text-[20px] font-bold;
+  }
+  .meta {
+    @apply text-[16px] font-bold tracking-[0.2em] text-[#666666];
+  }
+  .english {
+    @apply text-[24px] leading-[1.9] text-black;
+  }
+}
+
+/* スクロールバー（モノトーン） */
+.scroll-thin::-webkit-scrollbar { width: 10px; height: 8px; }
+.scroll-thin::-webkit-scrollbar-thumb { background: #666666; }
+.scroll-thin::-webkit-scrollbar-track { background: #fafafa; }
