@@ -12,6 +12,7 @@
  *   DRIVE_FOLDER_ID  : 任意（payload.folderId が無い場合のフォールバック）
  *
  * ※ スプレッドシートID・フォルダIDはコード内にハードコードしないこと。
+ * ※ 同一 participantId でも sessionId ごとに必ず新規行として末尾に追記（Append）されます。
  * ============================================================
  */
 
@@ -19,15 +20,32 @@ var SHEET_NAME = 'RetellingData';
 var DEFAULT_MODEL = 'gemini-3.8-flash';
 var CELL_LIMIT = 49000; // セル文字数上限(50,000)の安全マージン
 
-/** カラム定義 [key, ヘッダー表示名] */
+/**
+ * カラム定義 [key, ヘッダー表示名]
+ * 2要因実験（topicId × mode）分析用の必須カラム（ExperimentLogPayload）＋詳細ログ列
+ */
 var COLUMNS = [
-  ['timestamp', 'タイムスタンプ'],
+  ['timestamp', 'タイムスタンプ(ISO)'],
   ['sessionId', 'セッションID'],
   ['participantId', '被験者ID'],
-  ['mode', '実験モード'],
-  ['englishLevel', '英語レベル'],
+  ['topicId', '実験テーマ(topicId)'],
+  ['mode', '実験モード(mode)'],
+  ['selectedCard', '選択カード(selectedCard)'],
+  ['readingTime1_ms', '読解時間1(readingTime1_ms)'],
+  ['readingTime2_ms', '再読解時間2(readingTime2_ms)'],
+  ['quizAttemptCount', 'クイズ試行回数(quizAttemptCount)'],
+  ['quizAnswersHistory', 'クイズ回答履歴(quizAnswersHistory)'],
+  ['extractedKeywords', '抽出キーワード(extractedKeywords)'],
+  ['retellingDuration_sec', '発話・対話時間秒(retellingDuration_sec)'],
+  ['speechTranscript', '発話・対話ログ(speechTranscript)'],
+  ['caf_complexity', 'CAF複雑さ(caf_complexity)'],
+  ['caf_accuracy', 'CAF正確さ(caf_accuracy)'],
+  ['caf_fluency', 'CAF流暢さ(caf_fluency)'],
+  ['persuasion_score', '説得度スコア(persuasion_score)'],
+  ['full_evaluation_json', '生評価JSON(full_evaluation_json)'],
+  // 既存互換・詳細補助カラム
   ['attempt', '試行回数'],
-  ['fullPrompt', 'お題'],
+  ['fullPrompt', 'お題テキスト'],
   ['cardIds', '選択カードID'],
   ['cardTexts', '選択カード本文'],
   ['readingSec', '読解所要時間（秒）'],
@@ -48,15 +66,16 @@ var COLUMNS = [
   ['updatedAt', '最終更新'],
 ];
 
-/** 再挑戦（キーワード選択から）時に複製する範囲（被験者ID〜クイズ詳細） */
+/** 再挑戦（キーワード選択から）時に複製する範囲 */
 var RETRY_COPY_KEYS = [
-  'participantId', 'mode', 'englishLevel', 'fullPrompt', 'cardIds', 'cardTexts',
-  'readingSec', 'quizCorrect', 'quizRate', 'quizDetail', 'rereadingSec',
+  'participantId', 'topicId', 'mode', 'selectedCard', 'fullPrompt', 'cardIds', 'cardTexts',
+  'readingTime1_ms', 'readingSec', 'quizAttemptCount', 'quizAnswersHistory', 'quizCorrect', 'quizRate', 'quizDetail',
+  'readingTime2_ms', 'rereadingSec',
 ];
 
-/** 再挑戦（カード選択から）時に複製する範囲（被験者ID〜お題：カード選択より前の列） */
+/** 再挑戦（カード選択から）時に複製する範囲 */
 var RETRY_COPY_KEYS_CARDS = [
-  'participantId', 'mode', 'englishLevel', 'fullPrompt',
+  'participantId', 'topicId', 'mode', 'fullPrompt',
 ];
 
 // ============================================================
@@ -99,20 +118,20 @@ function doPost(e) {
 // アクション
 // ============================================================
 
-/** 画面① 初期登録 */
+/** 画面① 初期登録（セッションごとに必ず末尾に新規行を Append） */
 function saveInitial_(req, lock) {
   lock.waitLock(20000);
   var sheet = getSheet_(req);
-  var now = new Date();
+  var nowIso = new Date().toISOString();
   appendRow_(sheet, {
-    timestamp: now,
+    timestamp: req.timestamp || nowIso,
     sessionId: req.sessionId,
     participantId: req.participantId,
+    topicId: req.topicId || '',
     mode: req.mode !== undefined ? req.mode : '',
-    englishLevel: req.englishLevel || '',
     fullPrompt: req.fullPrompt || '',
     attempt: req.attempt || 1,
-    updatedAt: now,
+    updatedAt: nowIso,
   });
   return { sessionId: req.sessionId };
 }
@@ -123,13 +142,18 @@ function logReading_(req, lock) {
   var sheet = getSheet_(req);
   var row = findRowOrCreate_(sheet, req);
   var cards = req.cards || [];
+  var selectedCard = req.selectedCard || (cards[0] && cards[0].id) || '';
   setValues_(sheet, row, {
+    topicId: req.topicId,
+    mode: req.mode,
     fullPrompt: req.fullPrompt,
+    selectedCard: selectedCard,
     cardIds: cards.map(function (c) { return c.id; }).join(', '),
-    cardTexts: cards.map(function (c) { 
+    cardTexts: cards.map(function (c) {
       var levelInfo = c.relevance_level ? ' [Level: ' + c.relevance_level + ']' : '';
-      return '[' + c.id + ']' + levelInfo + ' ' + c.title + '\n' + c.body; 
+      return '[' + c.id + ']' + levelInfo + ' ' + c.title + '\n' + c.body;
     }).join('\n\n'),
+    readingTime1_ms: req.readingTime1_ms !== undefined ? req.readingTime1_ms : req.readingMs,
     readingSec: req.readingSec,
   });
   return {};
@@ -141,6 +165,8 @@ function saveQuiz_(req, lock) {
   var sheet = getSheet_(req);
   var row = findRowOrCreate_(sheet, req);
   setValues_(sheet, row, {
+    quizAttemptCount: req.quizAttemptCount !== undefined ? req.quizAttemptCount : 1,
+    quizAnswersHistory: req.quizAnswersHistory || JSON.stringify(req.details || []),
     quizCorrect: req.correct + ' / ' + req.total,
     quizRate: req.rate,
     quizDetail: JSON.stringify(req.details || []),
@@ -154,12 +180,13 @@ function logRereading_(req, lock) {
   var sheet = getSheet_(req);
   var row = findRowOrCreate_(sheet, req);
   setValues_(sheet, row, {
+    readingTime2_ms: req.readingTime2_ms !== undefined ? req.readingTime2_ms : req.rereadingMs,
     rereadingSec: req.rereadingSec,
   });
   return {};
 }
 
-/** 画面⑧ 音声保存 → Gemini 文字起こし・判定 */
+/** 画面⑨ 音声保存 → Gemini 文字起こし・判定 */
 function uploadAudio_(req, lock) {
   // 1) ドライブ保存
   var folderId = req.folderId || prop_('DRIVE_FOLDER_ID');
@@ -169,7 +196,14 @@ function uploadAudio_(req, lock) {
   var bytes = Utilities.base64Decode(req.audioBase64);
   var blob = Utilities.newBlob(bytes, mimeType, req.fileName || ('audio_' + Date.now() + '.webm'));
   var file = folder.createFile(blob);
-  file.setDescription('participant=' + req.participantId + ' attempt=' + req.attempt + ' turn=' + req.turn + ' session=' + req.sessionId);
+  file.setDescription(
+    'participant=' + req.participantId +
+    ' topic=' + (req.topicId || '') +
+    ' mode=' + (req.mode || '') +
+    ' attempt=' + req.attempt +
+    ' turn=' + req.turn +
+    ' session=' + req.sessionId
+  );
   var fileUrl = file.getUrl();
 
   // 2) Gemini 文字起こし・判定（ロック外で実行）
@@ -182,7 +216,8 @@ function uploadAudio_(req, lock) {
   appendCell_(sheet, row, 'audioUrls', '[T' + req.turn + '] ' + fileUrl);
   appendCell_(sheet, row, 'transcript', '[T' + req.turn + '] ' + (ai.transcript || ''));
   if (req.keywords && req.keywords.length) {
-    setValues_(sheet, row, { keywords: req.keywords.join(', ') });
+    var kw = req.keywords.join(', ');
+    setValues_(sheet, row, { extractedKeywords: kw, keywords: kw });
   }
   return {
     fileId: file.getId(),
@@ -196,37 +231,55 @@ function uploadAudio_(req, lock) {
 
 /**
  * 画面⑨ 再挑戦：前半データを複製した新規行
- *   req.scope = 'keywords'（既定）: 〜クイズ結果までを複製（キーワード選択から再開）
- *   req.scope = 'cards'            : 〜お題までを複製（カード選択から再開）
  */
 function duplicateForRetry_(req, lock) {
   lock.waitLock(20000);
   var sheet = getSheet_(req);
-  var src = findRow_(sheet, req.sessionId);
-  if (!src) throw new Error('複製元の行が見つかりません: ' + req.sessionId);
+  var src = findRowOrCreate_(sheet, req);
   var values = sheet.getRange(src, 1, 1, COLUMNS.length).getValues()[0];
   var obj = {};
   var keys = req.scope === 'cards' ? RETRY_COPY_KEYS_CARDS : RETRY_COPY_KEYS;
   keys.forEach(function (k) { obj[k] = values[colIndex_(k) - 1]; });
-  var now = new Date();
-  obj.timestamp = now;
-  obj.updatedAt = now;
+  var nowIso = new Date().toISOString();
+  obj.timestamp = nowIso;
+  obj.updatedAt = nowIso;
   obj.sessionId = req.newSessionId;
   obj.attempt = req.attempt || (Number(values[colIndex_('attempt') - 1]) + 1);
   appendRow_(sheet, obj);
   return { sessionId: req.newSessionId, attempt: obj.attempt };
 }
 
-/** 画面⑩/⑪ 最終評価保存 */
+/** 画面⑪ 最終評価・ExperimentLogPayload 保存 */
 function saveFinalAssessment_(req, lock) {
   lock.waitLock(20000);
   var sheet = getSheet_(req);
   var row = findRowOrCreate_(sheet, req);
   var caf = req.caf || {};
+  var extractedKeywords = req.extractedKeywords !== undefined
+    ? req.extractedKeywords
+    : (req.keywords || []).join(', ');
   var patch = {
+    timestamp: req.timestamp || undefined,
+    participantId: req.participantId || undefined,
+    topicId: req.topicId !== undefined ? req.topicId : undefined,
     mode: req.mode !== undefined ? req.mode : undefined,
+    selectedCard: req.selectedCard !== undefined ? req.selectedCard : undefined,
+    readingTime1_ms: req.readingTime1_ms !== undefined ? req.readingTime1_ms : undefined,
+    readingTime2_ms: req.readingTime2_ms !== undefined ? req.readingTime2_ms : undefined,
+    quizAttemptCount: req.quizAttemptCount !== undefined ? req.quizAttemptCount : undefined,
+    quizAnswersHistory: req.quizAnswersHistory !== undefined ? req.quizAnswersHistory : undefined,
+    extractedKeywords: extractedKeywords,
+    retellingDuration_sec: req.retellingDuration_sec !== undefined ? req.retellingDuration_sec : undefined,
+    speechTranscript: req.speechTranscript !== undefined ? req.speechTranscript : req.transcript,
+    caf_complexity: req.caf_complexity !== undefined ? req.caf_complexity : caf.complexity,
+    caf_accuracy: req.caf_accuracy !== undefined ? req.caf_accuracy : caf.accuracy,
+    caf_fluency: req.caf_fluency !== undefined ? req.caf_fluency : caf.fluency,
+    persuasion_score: req.persuasion_score !== undefined && req.persuasion_score !== null ? req.persuasion_score : '',
+    full_evaluation_json: req.full_evaluation_json !== undefined ? req.full_evaluation_json : JSON.stringify({ caf: caf.detail || {}, character: req.character || null }),
+    // 既存カラム
+    fullPrompt: req.fullPrompt !== undefined ? req.fullPrompt : undefined,
     rereadingSec: req.rereadingSec !== undefined ? req.rereadingSec : undefined,
-    keywords: (req.keywords || []).join(', '),
+    keywords: extractedKeywords,
     transcript: req.transcript,
     dialogLog: JSON.stringify(req.conversation || []),
     cafTotal: caf.total,
@@ -326,17 +379,19 @@ function findRow_(sheet, sessionId) {
   return hit ? hit.getRow() : null;
 }
 
-/** sessionId の行を探し、無ければ新規作成（初期登録の取りこぼし対策） */
+/** sessionId の行を探し、無ければ末尾に新規作成（同一 participantId でも別セッションは必ず新規行として Append） */
 function findRowOrCreate_(sheet, req) {
   var row = findRow_(sheet, req.sessionId);
   if (row) return row;
-  var now = new Date();
+  var nowIso = new Date().toISOString();
   appendRow_(sheet, {
-    timestamp: now,
+    timestamp: req.timestamp || nowIso,
     sessionId: req.sessionId,
     participantId: req.participantId,
+    topicId: req.topicId || '',
+    mode: req.mode !== undefined ? req.mode : '',
     attempt: req.attempt || 1,
-    updatedAt: now,
+    updatedAt: nowIso,
   });
   return sheet.getLastRow();
 }
@@ -347,7 +402,7 @@ function appendRow_(sheet, obj) {
 }
 
 function setValues_(sheet, row, patch) {
-  patch.updatedAt = new Date();
+  patch.updatedAt = new Date().toISOString();
   Object.keys(patch).forEach(function (k) {
     if (patch[k] === undefined) return;
     sheet.getRange(row, colIndex_(k)).setValue(clip_(patch[k]));

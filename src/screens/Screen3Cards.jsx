@@ -1,17 +1,18 @@
 import { useExperiment } from '../context/ExperimentContext.jsx';
 import { ScreenLayout } from '../components/Layout.jsx';
-import { CARDS } from '../data/experiment.js';
+import { cardsForTopic } from '../data/experiment.js';
 
-/** 【画面3】カード選択（4枚から1枚） */
+/** 【画面3】カード選択（選択テーマに応じた4枚から1枚） */
 export default function Screen3Cards() {
   const { state, update, goTo } = useExperiment();
+  const cards = cardsForTopic(state.topicId);
 
   const select = (id) =>
     update((s) =>
       s.cardId === id
         ? {}
         : // カードが変わったら下流データを初期化
-          { cardId: id, readingMs: null, answers: {}, quizSaved: false },
+          { cardId: id, readingMs: null, answers: {}, quizAttemptCount: 0, quizHistory: [], quizSaved: false },
     );
 
   return (
@@ -25,7 +26,7 @@ export default function Screen3Cards() {
       }
     >
       <div className="grid grid-cols-2 gap-6">
-        {CARDS.map((c) => {
+        {cards.map((c) => {
           const selected = state.cardId === c.id;
           return (
             <button

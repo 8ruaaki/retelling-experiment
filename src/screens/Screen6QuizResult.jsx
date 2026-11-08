@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useExperiment } from '../context/ExperimentContext.jsx';
 import { ErrorBox, ScreenLayout } from '../components/Layout.jsx';
 import { callGas } from '../lib/gas.js';
-import { QUIZ } from '../data/experiment.js';
+import { quizForCard } from '../data/experiment.js';
 import { LETTERS } from './Screen5Quiz.jsx';
 
 /** 【画面6】答え合わせ・解説（再挑戦なし：得点に関わらず画面7へ） */
@@ -12,11 +12,11 @@ export default function Screen6QuizResult() {
 
   const results = useMemo(
     () =>
-      (QUIZ[state.cardId] || []).map((q, qi) => {
+      quizForCard(state.topicId, state.cardId).map((q, qi) => {
         const picked = state.answers[qi];
         return { qIndex: qi, ...q, picked, correct: picked === q.answerIndex };
       }),
-    [state.cardId, state.answers],
+    [state.topicId, state.cardId, state.answers],
   );
 
   const correct = results.filter((r) => r.correct).length;
@@ -26,23 +26,35 @@ export default function Screen6QuizResult() {
     setError('');
     try {
       if (!state.quizSaved) {
+        const details = results.map(({ qIndex, question, options, picked, answerIndex, correct }) => ({
+          topicId: state.topicId,
+          cardId: state.cardId,
+          qIndex,
+          question,
+          picked: picked !== undefined ? LETTERS[picked] : null,
+          pickedText: picked !== undefined ? options[picked] : null,
+          answer: LETTERS[answerIndex],
+          correct,
+        }));
+        const quizAttemptCount = state.quizAttemptCount || 1;
+        const quizAnswersHistory = JSON.stringify(
+          state.quizHistory && state.quizHistory.length > 0
+            ? state.quizHistory
+            : [{ attempt: 1, answers: details.map((d) => d.picked).join(','), score: `${correct}/${total}`, details }],
+        );
         await withLoading('クイズ結果を保存しています…', () =>
           callGas('saveQuiz', {
             sessionId: state.sessionId,
             participantId: state.participantId,
+            topicId: state.topicId,
+            mode: state.mode,
             attempt: state.attempt,
             correct,
             total,
             rate: total ? +(correct / total).toFixed(4) : 0,
-            details: results.map(({ qIndex, question, options, picked, answerIndex, correct }) => ({
-              cardId: state.cardId,
-              qIndex,
-              question,
-              picked: picked !== undefined ? LETTERS[picked] : null,
-              pickedText: picked !== undefined ? options[picked] : null,
-              answer: LETTERS[answerIndex],
-              correct,
-            })),
+            quizAttemptCount,
+            quizAnswersHistory,
+            details,
           }),
         );
         update({ quizSaved: true });

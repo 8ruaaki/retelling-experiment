@@ -4,8 +4,9 @@ import { ErrorBox, ScreenLayout } from '../components/Layout.jsx';
 import { CafAssessment, CharacterFeedback } from '../components/AssessmentPanels.jsx';
 import { generateAssessment } from '../lib/ai.js';
 import { MODES } from '../data/experiment.js';
+import { executeRetry } from './Screen11Finish.jsx';
 
-/** 【画面10】評価：モード1は CAF 評価のみ、モード2・3は既存のフル評価 */
+/** 【画面10】評価（結果表示）：モード1は CAF 評価のみ、モード2・3はフル評価 */
 export default function Screen10Assessment() {
   const { state, update, goTo, withLoading } = useExperiment();
   const cards = selectedCardsOf(state);
@@ -34,6 +35,15 @@ export default function Screen10Assessment() {
     }
   };
 
+  const handleRetry = async (scope) => {
+    setError('');
+    try {
+      await withLoading('再挑戦の準備をしています…', () => executeRetry({ state, update, goTo, scope }));
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
   useEffect(() => {
     if (started.current) return;
     started.current = true;
@@ -46,12 +56,30 @@ export default function Screen10Assessment() {
       title="評価"
       subtitle={`「${state.target}」に ${state.topic}を伝えよ！`}
       footer={
-        <button id="assessment-done" className="btn btn-primary" disabled={!a} onClick={() => goTo(11)}>
-          完了
-        </button>
+        <>
+          <button
+            id="retry-cards"
+            className="btn btn-secondary"
+            disabled={!a}
+            onClick={() => handleRetry('cards')}
+          >
+            カード選択に戻って再挑戦
+          </button>
+          <button
+            id="retry-keywords"
+            className="btn btn-secondary mr-auto"
+            disabled={!a}
+            onClick={() => handleRetry('keywords')}
+          >
+            キーワード選択に戻って再挑戦
+          </button>
+          <button id="assessment-done" className="btn btn-primary" disabled={!a} onClick={() => goTo(11)}>
+            完了
+          </button>
+        </>
       }
     >
-      <ErrorBox message={error} onRetry={run} />
+      <ErrorBox message={error} onRetry={!a ? run : undefined} />
 
       {a &&
         (full ? (
@@ -67,4 +95,3 @@ export default function Screen10Assessment() {
     </ScreenLayout>
   );
 }
-

@@ -1,16 +1,45 @@
 import { useExperiment } from '../context/ExperimentContext.jsx';
 import { ScreenLayout } from '../components/Layout.jsx';
-import { QUIZ } from '../data/experiment.js';
+import { quizForCard } from '../data/experiment.js';
 
 export const LETTERS = ['A', 'B', 'C', 'D'];
 
 /** 【画面5】内容理解クイズ（2問・4択） */
 export default function Screen5Quiz() {
   const { state, update, goTo } = useExperiment();
-  const questions = QUIZ[state.cardId] || [];
+  const questions = quizForCard(state.topicId, state.cardId);
   const allAnswered = questions.length > 0 && questions.every((_, qi) => state.answers[qi] !== undefined);
 
   const choose = (qi, oi) => update((s) => ({ answers: { ...s.answers, [qi]: oi } }));
+
+  const submitQuiz = () => {
+    const attemptDetails = questions.map((q, qi) => {
+      const picked = state.answers[qi];
+      return {
+        qIndex: qi + 1,
+        picked: picked !== undefined ? LETTERS[picked] : null,
+        answer: LETTERS[q.answerIndex],
+        correct: picked === q.answerIndex,
+      };
+    });
+    const correctCount = attemptDetails.filter((d) => d.correct).length;
+    update((s) => {
+      const nextCount = (s.quizAttemptCount || 0) + 1;
+      return {
+        quizAttemptCount: nextCount,
+        quizHistory: [
+          ...(s.quizHistory || []),
+          {
+            attempt: nextCount,
+            answers: attemptDetails.map((d) => d.picked).join(','),
+            score: `${correctCount}/${questions.length}`,
+            details: attemptDetails,
+          },
+        ],
+      };
+    });
+    goTo(6);
+  };
 
   return (
     <ScreenLayout
@@ -18,7 +47,7 @@ export default function Screen5Quiz() {
       title="内容理解クイズ"
       subtitle="読んだカードの内容について、2問とも答えてください。"
       footer={
-        <button id="quiz-next" className="btn btn-primary" disabled={!allAnswered} onClick={() => goTo(6)}>
+        <button id="quiz-next" className="btn btn-primary" disabled={!allAnswered} onClick={submitQuiz}>
           回答する
         </button>
       }

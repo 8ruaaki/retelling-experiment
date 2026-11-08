@@ -26,9 +26,13 @@ export default function Screen4Reading() {
         callGas('logReading', {
           sessionId: state.sessionId,
           participantId: state.participantId,
+          topicId: state.topicId,
+          mode: state.mode,
           attempt: state.attempt,
           fullPrompt: fullPromptOf(state.target, state.topic),
+          selectedCard: card.id,
           cards: [{ id: card.id, title: card.title, body: card.body, relevance_level: card.relevance_level }],
+          readingTime1_ms: readingMs,
           readingMs,
           readingSec: +(readingMs / 1000).toFixed(3),
         }),

@@ -4,20 +4,21 @@
 // ============================================================
 import { generateJson } from './gemini.js';
 
-// ---------- 画面⑧ 相手キャラの第一声 ----------
+// ---------- 画面⑨ 相手キャラの第一声 ----------
 export async function generateOpening(target, topic, cards) {
   const r = await generateJson(
     `You are role-playing as "${target}" (described in Japanese) in a chat app.
-A learner of English is about to try to convince you about "${topic}".
-They will base their argument on the following source cards:
+A learner of English is about to explain or convince you about "${topic}".
+They will base their speech on the following source cards:
 ${cards.map((c) => `- ${c.title}: ${c.body}`).join('\n')}
 
-TASK 1: Write your FIRST chat message in English (2-3 short sentences, CEFR A2-B1, casual, in character).
-Show some skepticism or a reason why you are not interested.
+TASK 1: Write your FIRST chat message in English (2-3 short sentences, CEFR A2-B1, casual, in character as "${target}").
+- If your persona "${target}" has a negative or reluctant attitude toward "${topic}", show some skepticism or a reason why you are hesitant.
+- If your persona "${target}" has a positive or active attitude, show friendly interest and curiosity.
 CRITICAL REQUIREMENT: The very last sentence of your message MUST explicitly ask the learner about the topic ("${topic}", translated to English).
-For example, if the topic is "菜食主義の利点", the last sentence should be "What are the benefits of vegetarianism?" or "Tell me about the benefits of vegetarianism!"
+For example, if the topic is "英会話の良さ", the last sentence should be "What are the good points of online English lessons?" or "Tell me about the benefits of online English lessons!"
 
-TASK 2: Extract exactly 2 to 3 "must-include points" (short English phrases) from the source cards. These are the core logical points the learner MUST mention to successfully convince you.
+TASK 2: Extract exactly 2 to 3 "must-include points" (short English phrases) from the source cards. These are the core logical points the learner MUST mention to successfully explain/convince you.
 
 Output JSON only:
 {"message":"...", "mustIncludePoints": ["point 1", "point 2"]}`,
@@ -27,24 +28,24 @@ Output JSON only:
 }
 
 /**
- * 画面⑧ 各ターンの判定プロンプト（GAS / フロント直呼び共通）
+ * 画面⑨ 各ターンの判定プロンプト（GAS / フロント直呼び共通）
  * 音声ファイルと共に Gemini へ渡す
  */
 export function buildTurnPrompt({ target, topic, cards, keywords, history, turn, mustIncludePoints }) {
-  return `You are role-playing as "${target}" (described in Japanese) in a chat-style persuasion task.
-The learner (an English learner) is trying to convince you about "${topic}".
+  return `You are role-playing as "${target}" (described in Japanese) in a chat-style persuasion/explanation task.
+The learner (an English learner) is trying to convey "${topic}" to you.
 The learner read these source cards beforehand:
 ${cards.map((c) => `- ${c.title}: ${c.body}`).join('\n')}
 Learner's keywords: ${keywords.join(', ') || '(none)'}
 Must-include points from the cards:
-${(mustIncludePoints || []).map(p => `- ${p}`).join('\n') || '(none)'}
+${(mustIncludePoints || []).map((p) => `- ${p}`).join('\n') || '(none)'}
 
 Conversation so far:
 ${history.map((m) => `${m.role === 'partner' ? 'YOU' : 'LEARNER'}: ${m.text}`).join('\n') || '(none)'}
 
 TASK:
 1. Transcribe the attached audio of the learner's latest utterance VERBATIM in English (keep fillers like "uh", "um", false starts and grammatical errors; do NOT correct anything).
-2. Judge in character whether you are convinced. 
+2. Judge in character whether you are satisfied/convinced. 
    CRITICAL RULE for judging: 
    - Check if the learner successfully mentioned ALL of the "Must-include points" across their utterances.
    - You MUST judge as "convinced" if they mentioned the points without major omissions.
@@ -53,13 +54,13 @@ TASK:
 3. Write your in-character reply in English (2-3 short sentences, CEFR A2-B1).
    - CRITICAL RULE FOR REBUTTAL (DO NOT SPOIL THE ANSWER):
      * NEVER mention the answer, facts, or exact keywords from the missing "Must-include points" (e.g., do NOT say "You didn't mention that it saves time and money, so how much does it save?").
-     * Instead, act like a skeptical, curious persona who notices something is missing or wants to know more from their own perspective. Ask an open-ended, probing question that prompts the learner to explain that point themselves.
+     * Instead, act like your persona "${target}" who notices something is missing or wants to know more from their own perspective. Ask an open-ended, probing question that prompts the learner to explain that point themselves.
      * Examples:
        - Bad (spoiler): "What about the fact that it is good for the environment because it reduces CO2?"
        - Good (probing): "I see, but does this really help our planet? What kind of effect does it have on nature?"
        - Bad (spoiler): "You forgot to explain that it improves sleep quality."
        - Good (probing): "That sounds nice, but how does it actually affect my health or daily rest?"
-   - For convinced: express that you are fully persuaded and how your feelings/actions change.
+   - For convinced: express that you are fully satisfied/persuaded and how your feelings/actions change.
 
 Output JSON only:
 {"transcript":"...","verdict":"rebuttal" | "convinced","reply":"...","reason_ja":"判定理由を日本語で1文"}`;
@@ -111,7 +112,7 @@ Output JSON only:
 {"transcript":"...","verdict":"none","reply":"","reason_ja":""}`;
 }
 
-// ---------- 画面⑨ 総合評価 ----------
+// ---------- 画面⑩ 総合評価 ----------
 export async function generateAssessment({ target, topic, cards, keywords, conversation, englishLevel }) {
   const learnerText = conversation
     .filter((m) => m.role === 'learner')
@@ -147,7 +148,11 @@ ${learnerText}
 - content（内容の正確さと網羅性）: 12点満点 — カード内容を正確に、かつ十分に伝えられたか
 - organization（構成と論理的な流れ）: 10点満点 — 導入・根拠・結論の構成、談話標識、一貫性
 - language（言語使用の正確さと流暢さ）: 8点満点 — 文法・語彙の正確さ、複雑さ、流暢さ（フィラー・言い直しの量）
-各観点について、日本語で「good」（良かった点 1〜3個）と「improve」（改善点 1〜3個）を書く。
+また、分析用CAFサブスコア（各10点満点: 0〜10の整数）も算出してください:
+- complexity（語彙・構文的複雑さスコア: 0〜10）
+- accuracy（文法的正確さスコア: 0〜10）
+- fluency（流暢さスコア: 0〜10）
+各観点（content, organization, language）について、日本語で「good」（良かった点 1〜3個）と「improve」（改善点 1〜3個）を書く。
 language には具体的な文法修正例 corrections を 1〜4 個（学習者の実際の発話から抜き出した wrong → 修正後 right、日本語の note）。
 teacherComment: 次のステップに向けた教師からの励ましとアドバイス（日本語 3〜4文）。
 
@@ -164,6 +169,9 @@ JSON のみで出力:
     "organization": {"score": 0, "max": 10, "good": ["..."], "improve": ["..."]},
     "language": {"score": 0, "max": 8, "good": ["..."], "improve": ["..."],
                  "corrections": [{"wrong": "...", "right": "...", "note": "..."}]},
+    "complexity": 0,
+    "accuracy": 0,
+    "fluency": 0,
     "total": 0,
     "teacherComment": "..."
   }
@@ -176,6 +184,9 @@ JSON のみで出力:
     c.content.score = clamp(c.content.score, 12);
     c.organization.score = clamp(c.organization.score, 10);
     c.language.score = clamp(c.language.score, 8);
+    c.complexity = clamp(c.complexity ?? c.organization.score, 10);
+    c.accuracy = clamp(c.accuracy ?? c.content.score, 10);
+    c.fluency = clamp(c.fluency ?? c.language.score, 10);
     c.total = c.content.score + c.organization.score + c.language.score;
     return r;
   });

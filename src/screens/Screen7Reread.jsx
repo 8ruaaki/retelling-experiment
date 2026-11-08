@@ -24,7 +24,10 @@ export default function Screen7Reread() {
         callGas('logRereading', {
           sessionId: state.sessionId,
           participantId: state.participantId,
+          topicId: state.topicId,
+          mode: state.mode,
           attempt: state.attempt,
+          readingTime2_ms: rereadingMs,
           rereadingMs,
           rereadingSec: +(rereadingMs / 1000).toFixed(3),
         }),

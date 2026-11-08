@@ -15,7 +15,7 @@ export default function Screen2Topic() {
       }
     >
       <section className="card mt-16 px-10 py-14 text-center">
-        <p className="meta">テーマ：{state.topic}</p>
+        <p className="meta">テーマ：{state.topicLabel || state.topic}</p>
         <p id="topic-text" className="mt-6 text-[34px] font-bold leading-relaxed">
           「{state.target}」に
           <br />

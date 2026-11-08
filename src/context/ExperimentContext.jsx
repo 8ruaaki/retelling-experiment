@@ -12,6 +12,8 @@ export const initialState = () => ({
   screen: 1,
   sessionId: newSessionId(),
   participantId: '',
+  topicId: '', // 'english' | 'bicycle'
+  topicLabel: '',
   mode: null, // 1 | 2 | 3
   attempt: 1, // 本プロトコルでは再挑戦なし（既存の保存処理・ファイル名との互換のため固定）
   // ② お題
@@ -23,6 +25,8 @@ export const initialState = () => ({
   readingMs: null,
   // ⑤⑥ クイズ
   answers: {}, // { [qIndex]: optionIndex }
+  quizAttemptCount: 0,
+  quizHistory: [],
   quizSaved: false,
   // ⑦ 再読解時間
   rereadingMs: null,
@@ -81,7 +85,7 @@ export const useExperiment = () => useContext(Ctx);
 
 /** 選択済みカード（既存の対話・評価ロジックと互換の配列形式） */
 export const selectedCardsOf = (state) => {
-  const c = cardById(state.cardId);
+  const c = cardById(state.cardId, state.topicId);
   return c ? [c] : [];
 };
 
