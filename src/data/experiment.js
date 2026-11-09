@@ -10,11 +10,11 @@ export const TOPICS = {
   english: {
     id: 'english',
     label: 'オンライン英会話',
-    topic: '英会話の良さ',
+    topic: 'オンライン英会話の良さ',
     targets: {
-      1: '英語が好きな人',
-      2: '英語が苦手な人',
-      3: '英語が苦手な人',
+      1: '英語を話すことに積極的な人',
+      2: '英語を話すことに消極的な人',
+      3: '英語を話すことに消極的な人',
     },
   },
   bicycle: {
@@ -22,9 +22,9 @@ export const TOPICS = {
     label: '自転車通学',
     topic: '自転車通学の良さ',
     targets: {
-      1: 'アクティブな人',
-      2: '電車派の人',
-      3: '電車派の人',
+      1: '運動が好きな人',
+      2: '運動が嫌いな人',
+      3: '運動が嫌いな人',
     },
   },
 };
@@ -89,7 +89,7 @@ export const CARDS_BY_TOPIC = {
       id: 'A',
       title: 'Card A',
       relevance_level: 1,
-      body: 'Online English lessons are very easy and safe for beginners. Many sites offer simple translation tools and kind teachers who speak Japanese. If you do not know a word, you can just write it in the chat box without fear. You do not have to speak well right away. Therefore, even people who feel scared of talking with foreigners can start with peace of mind.',
+      body: 'Online English lessons are very easy and safe for beginners. Many sites offer simple translation tools and kind instructors who speak Japanese. If you do not know a vocabulary, you can just write it in the chat box without fear. You do not have to speak well right away. Therefore, even people who feel scared of talking with foreigners can start with peace of mind.',
     },
     {
       id: 'B',
@@ -101,7 +101,7 @@ export const CARDS_BY_TOPIC = {
       id: 'C',
       title: 'Card C',
       relevance_level: 3,
-      body: 'Low cost is the biggest benefit of online language practice. Normal conversation schools often cost a lot of money. However, web services let you take daily classes for a cheap monthly price. You can practice speaking every single day and get plenty of talk time. Daily practice takes personal effort, but the low price makes it the best choice to save money.',
+      body: 'Low cost is the biggest benefit of online language practice. Normal conversation schools often cost a lot of money. However, web services let you take daily classes for a cheap monthly price. You can practice speaking every day and get plenty of talk time. Daily practice takes personal effort, but the low price makes it the best choice to save money.',
     },
     {
       id: 'D',
@@ -133,7 +133,7 @@ export const CARDS_BY_TOPIC = {
       id: 'D',
       title: 'Card D',
       relevance_level: 4,
-      body: 'Riding to school creates a hard, daily body training space. You must ride right away against cold winds and difficult morning rain. You have to push heavy pedals up big hills during the ride. This sudden challenge pushes you out of your comfort zone. Hard body training is tough, but it forces your muscle power to develop very fast.',
+      body: 'Cycling to school gives you a hard daily habit that builds vital body power. You must ride against cold winds and sudden morning rain on the way. Pushing heavy pedals up steep hills demands steady physical effort. This rough daily ride pushes you out of your safe zone. Regular body training is tough, but it improves your health very rapidly. ',
     },
   ],
 };
