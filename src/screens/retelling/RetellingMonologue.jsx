@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { selectedCardsOf, useExperiment } from '../../context/ExperimentContext.jsx';
 import NavHeader from '../../components/NavHeader.jsx';
 import { ErrorBox } from '../../components/Layout.jsx';
-import { fmtTime, useRecorder } from '../../hooks/useRecorder.js';
+import { useRecorder } from '../../hooks/useRecorder.js';
 import { buildMonologuePrompt, buildTestMonologuePrompt, evaluateTurnDirect } from '../../lib/ai.js';
 import { blobToBase64, callGas } from '../../lib/gas.js';
 import { CONFIG, isGasConfigured } from '../../lib/config.js';
@@ -175,10 +175,7 @@ export default function RetellingMonologue() {
           {initial}
         </div>
 
-        <p id="mono-timer" className="mt-8 font-mono text-[72px] font-bold leading-none tabular-nums">
-          {fmtTime(pending ? pending.durationSec : rec.elapsed)}
-        </p>
-        <p className="mt-3 text-[18px] font-bold text-[#666666]">{statusLabel}</p>
+        <p className="mt-8 text-[18px] font-bold text-[#666666]">{statusLabel}</p>
 
         <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
           <button

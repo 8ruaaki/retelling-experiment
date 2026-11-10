@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { selectedCardsOf, useExperiment } from '../../context/ExperimentContext.jsx';
 import NavHeader from '../../components/NavHeader.jsx';
 import { ErrorBox } from '../../components/Layout.jsx';
-import { fmtTime, useRecorder } from '../../hooks/useRecorder.js';
+import { useRecorder } from '../../hooks/useRecorder.js';
 import { buildTestTurnPrompt, buildTurnPrompt, evaluateTurnDirect, generateOpening } from '../../lib/ai.js';
 import { blobToBase64, callGas } from '../../lib/gas.js';
 import { CONFIG, isGasConfigured } from '../../lib/config.js';
@@ -235,7 +235,6 @@ export default function RetellingDialogue() {
             <span className="text-[16px] font-bold text-[#666666]">
               {rec.status === 'recording' ? '録音中' : rec.status === 'paused' ? '一時停止中' : ''}
             </span>
-            <span id="rec-timer" className="font-mono text-[30px] font-bold tabular-nums">{fmtTime(rec.elapsed)}</span>
           </div>
         </div>
         {!rec.speechSupported && (
