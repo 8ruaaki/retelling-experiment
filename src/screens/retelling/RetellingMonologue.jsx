@@ -162,6 +162,15 @@ export default function RetellingMonologue() {
   const statusLabel =
     rec.status === 'recording' ? '録音中' : rec.status === 'paused' ? '一時停止中' : pending ? '録音確定済み' : '待機中';
 
+  const previewDisplay = pending
+    ? pending.preview || '（文字起こしテキストなし）'
+    : rec.previewText ||
+      (rec.status === 'recording'
+        ? 'Listening…'
+        : rec.status === 'paused'
+          ? '（一時停止中）'
+          : '「スタート」を押して話し始めると、ここに発話内容がリアルタイムで表示されます。');
+
   return (
     <div className="flex min-h-screen flex-col bg-white">
       <NavHeader />
@@ -170,21 +179,37 @@ export default function RetellingMonologue() {
       <main className="flex flex-1 flex-col items-center justify-center px-8 py-12">
         <div
           aria-hidden="true"
-          className="flex h-40 w-40 items-center justify-center rounded-full border-2 border-black text-[64px] font-bold"
+          className="flex h-32 w-32 items-center justify-center rounded-full border-2 border-black text-[52px] font-bold"
         >
           {initial}
         </div>
 
-        <p className="mt-8 text-[18px] font-bold text-[#666666]">{statusLabel}</p>
+        <p className="mt-6 text-[18px] font-bold text-[#666666]">{statusLabel}</p>
 
-        <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
+        {/* リアルタイム文字起こしプレビュー */}
+        <section
+          id="mono-preview"
+          aria-live="polite"
+          className="mt-6 w-full max-w-[900px] border border-dashed border-black bg-white px-6 py-5"
+        >
+          <p className="meta mb-2">リアルタイム文字起こし（プレビュー）</p>
+          <p
+            className={`min-h-[84px] whitespace-pre-wrap text-[21px] leading-relaxed ${
+              rec.previewText || pending?.preview ? 'text-[#333333]' : 'text-[#666666]'
+            }`}
+          >
+            {previewDisplay}
+          </p>
+        </section>
+
+        <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
           <button
             id="mono-start"
             className="btn btn-secondary min-w-[160px]"
             onClick={onStart}
             disabled={rec.status === 'recording' || !!pending}
           >
-            スタート
+            {rec.status === 'paused' ? '再開' : 'スタート'}
           </button>
           <button id="mono-pause" className="btn btn-secondary min-w-[160px]" onClick={onPause} disabled={rec.status !== 'recording'}>
             一時停止
@@ -198,7 +223,9 @@ export default function RetellingMonologue() {
         </div>
 
         {!rec.speechSupported && (
-          <p className="mt-6 text-[16px] text-[#666666]">※ Google Chrome での実施を推奨します。</p>
+          <p className="mt-6 text-[16px] text-[#666666]">
+            ※ このブラウザはリアルタイム文字起こしに未対応です（Google Chrome を推奨）。録音は可能です。
+          </p>
         )}
         <div className="w-full max-w-[800px]">
           <ErrorBox message={error || rec.error} onRetry={pending ? () => send() : undefined} />

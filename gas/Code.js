@@ -19,6 +19,7 @@
 var SHEET_NAME = 'RetellingData';
 var DEFAULT_MODEL = 'gemini-3.8-flash';
 var CELL_LIMIT = 49000; // セル文字数上限(50,000)の安全マージン
+var LOCK_TIMEOUT_MS = 30000; // GAS LockService 最大待機時間 (30秒)
 
 /**
  * カラム定義 [key, ヘッダー表示名]
@@ -91,7 +92,8 @@ function doPost(e) {
     var req = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     var action = req.action;
 
-    // 音声の Gemini 処理は時間がかかるため、ロックは書き込み部分でのみ取得する
+    // 音声の Drive 保存・Gemini 処理やスプレッドシートのオープンはロック外で行い、
+    // シートへの読み書き部分のみを最小限の時間でロックする
     var handlers = {
       saveInitial: saveInitial_,
       logReading: logReading_,
@@ -110,7 +112,31 @@ function doPost(e) {
     console.error(err);
     return json_({ ok: false, error: String(err && err.message ? err.message : err) });
   } finally {
-    try { lock.releaseLock(); } catch (_) {}
+    try {
+      if (lock.hasLock()) {
+        SpreadsheetApp.flush();
+        lock.releaseLock();
+      }
+    } catch (_) {}
+  }
+}
+
+/**
+ * スプレッドシートをロック外で開いた上で、ロックを取得してコールバックを実行し、
+ * 即座に flush & releaseLock するヘルパー
+ */
+function withSheetLock_(req, lock, fn) {
+  var ss = openSpreadsheet_(req);
+  lock.waitLock(LOCK_TIMEOUT_MS);
+  try {
+    var sheet = ensureSheet_(ss);
+    var res = fn(sheet);
+    SpreadsheetApp.flush();
+    return res;
+  } finally {
+    try {
+      if (lock.hasLock()) lock.releaseLock();
+    } catch (_) {}
   }
 }
 
@@ -120,30 +146,27 @@ function doPost(e) {
 
 /** 画面① 初期登録（セッションごとに必ず末尾に新規行を Append） */
 function saveInitial_(req, lock) {
-  lock.waitLock(20000);
-  var sheet = getSheet_(req);
-  var nowIso = new Date().toISOString();
-  appendRow_(sheet, {
-    timestamp: req.timestamp || nowIso,
-    sessionId: req.sessionId,
-    participantId: req.participantId,
-    topicId: req.topicId || '',
-    mode: req.mode !== undefined ? req.mode : '',
-    fullPrompt: req.fullPrompt || '',
-    attempt: req.attempt || 1,
-    updatedAt: nowIso,
+  return withSheetLock_(req, lock, function (sheet) {
+    var nowIso = new Date().toISOString();
+    appendRow_(sheet, {
+      timestamp: req.timestamp || nowIso,
+      sessionId: req.sessionId,
+      participantId: req.participantId,
+      topicId: req.topicId || '',
+      mode: req.mode !== undefined ? req.mode : '',
+      fullPrompt: req.fullPrompt || '',
+      attempt: req.attempt || 1,
+      updatedAt: nowIso,
+    });
+    return { sessionId: req.sessionId };
   });
-  return { sessionId: req.sessionId };
 }
 
 /** 画面④ 読解時間・カード本文 */
 function logReading_(req, lock) {
-  lock.waitLock(20000);
-  var sheet = getSheet_(req);
-  var row = findRowOrCreate_(sheet, req);
   var cards = req.cards || [];
   var selectedCard = req.selectedCard || (cards[0] && cards[0].id) || '';
-  setValues_(sheet, row, {
+  var patch = {
     topicId: req.topicId,
     mode: req.mode,
     fullPrompt: req.fullPrompt,
@@ -155,40 +178,46 @@ function logReading_(req, lock) {
     }).join('\n\n'),
     readingTime1_ms: req.readingTime1_ms !== undefined ? req.readingTime1_ms : req.readingMs,
     readingSec: req.readingSec,
+  };
+  return withSheetLock_(req, lock, function (sheet) {
+    var row = findRowOrCreate_(sheet, req);
+    setValues_(sheet, row, patch);
+    return {};
   });
-  return {};
 }
 
 /** 画面⑥ クイズ結果 */
 function saveQuiz_(req, lock) {
-  lock.waitLock(20000);
-  var sheet = getSheet_(req);
-  var row = findRowOrCreate_(sheet, req);
-  setValues_(sheet, row, {
+  var patch = {
     quizAttemptCount: req.quizAttemptCount !== undefined ? req.quizAttemptCount : 1,
     quizAnswersHistory: req.quizAnswersHistory || JSON.stringify(req.details || []),
     quizCorrect: req.correct + ' / ' + req.total,
     quizRate: req.rate,
     quizDetail: JSON.stringify(req.details || []),
+  };
+  return withSheetLock_(req, lock, function (sheet) {
+    var row = findRowOrCreate_(sheet, req);
+    setValues_(sheet, row, patch);
+    return {};
   });
-  return {};
 }
 
 /** 画面⑦ 再読解時間 */
 function logRereading_(req, lock) {
-  lock.waitLock(20000);
-  var sheet = getSheet_(req);
-  var row = findRowOrCreate_(sheet, req);
-  setValues_(sheet, row, {
+  var patch = {
     readingTime2_ms: req.readingTime2_ms !== undefined ? req.readingTime2_ms : req.rereadingMs,
     rereadingSec: req.rereadingSec,
+  };
+  return withSheetLock_(req, lock, function (sheet) {
+    var row = findRowOrCreate_(sheet, req);
+    setValues_(sheet, row, patch);
+    return {};
   });
-  return {};
 }
 
 /** 画面⑨ 音声保存 → Gemini 文字起こし・判定 */
 function uploadAudio_(req, lock) {
-  // 1) ドライブ保存
+  // 1) ドライブ保存（ロック外）
   var folderId = req.folderId || prop_('DRIVE_FOLDER_ID');
   if (!folderId) throw new Error('DRIVE_FOLDER_ID が未設定です');
   var folder = DriveApp.getFolderById(folderId);
@@ -205,22 +234,29 @@ function uploadAudio_(req, lock) {
     ' session=' + req.sessionId
   );
   var fileUrl = file.getUrl();
+  var fileId = file.getId();
 
   // 2) Gemini 文字起こし・判定（ロック外で実行）
   var ai = callGeminiWithAudio_(req.evaluationPrompt, req.audioBase64, mimeType, req.model);
 
-  // 3) シートへ追記
-  lock.waitLock(20000);
-  var sheet = getSheet_(req);
-  var row = findRowOrCreate_(sheet, req);
-  appendCell_(sheet, row, 'audioUrls', '[T' + req.turn + '] ' + fileUrl);
-  appendCell_(sheet, row, 'transcript', '[T' + req.turn + '] ' + (ai.transcript || ''));
+  // 3) シートへ一括追記（ロック保持時間を最小化）
+  var patch = {};
   if (req.keywords && req.keywords.length) {
     var kw = req.keywords.join(', ');
-    setValues_(sheet, row, { extractedKeywords: kw, keywords: kw });
+    patch.extractedKeywords = kw;
+    patch.keywords = kw;
   }
+  var appendPatch = {
+    audioUrls: '[T' + req.turn + '] ' + fileUrl,
+    transcript: '[T' + req.turn + '] ' + (ai.transcript || ''),
+  };
+  withSheetLock_(req, lock, function (sheet) {
+    var row = findRowOrCreate_(sheet, req);
+    setValues_(sheet, row, patch, appendPatch);
+  });
+
   return {
-    fileId: file.getId(),
+    fileId: fileId,
     fileUrl: fileUrl,
     transcript: ai.transcript || '',
     verdict: ai.verdict === 'convinced' ? 'convinced' : 'rebuttal',
@@ -233,27 +269,24 @@ function uploadAudio_(req, lock) {
  * 画面⑨ 再挑戦：前半データを複製した新規行
  */
 function duplicateForRetry_(req, lock) {
-  lock.waitLock(20000);
-  var sheet = getSheet_(req);
-  var src = findRowOrCreate_(sheet, req);
-  var values = sheet.getRange(src, 1, 1, COLUMNS.length).getValues()[0];
-  var obj = {};
-  var keys = req.scope === 'cards' ? RETRY_COPY_KEYS_CARDS : RETRY_COPY_KEYS;
-  keys.forEach(function (k) { obj[k] = values[colIndex_(k) - 1]; });
-  var nowIso = new Date().toISOString();
-  obj.timestamp = nowIso;
-  obj.updatedAt = nowIso;
-  obj.sessionId = req.newSessionId;
-  obj.attempt = req.attempt || (Number(values[colIndex_('attempt') - 1]) + 1);
-  appendRow_(sheet, obj);
-  return { sessionId: req.newSessionId, attempt: obj.attempt };
+  return withSheetLock_(req, lock, function (sheet) {
+    var src = findRowOrCreate_(sheet, req);
+    var values = sheet.getRange(src, 1, 1, COLUMNS.length).getValues()[0];
+    var obj = {};
+    var keys = req.scope === 'cards' ? RETRY_COPY_KEYS_CARDS : RETRY_COPY_KEYS;
+    keys.forEach(function (k) { obj[k] = values[colIndex_(k) - 1]; });
+    var nowIso = new Date().toISOString();
+    obj.timestamp = nowIso;
+    obj.updatedAt = nowIso;
+    obj.sessionId = req.newSessionId;
+    obj.attempt = req.attempt || (Number(values[colIndex_('attempt') - 1]) + 1);
+    appendRow_(sheet, obj);
+    return { sessionId: req.newSessionId, attempt: obj.attempt };
+  });
 }
 
 /** 画面⑪ 最終評価・ExperimentLogPayload 保存 */
 function saveFinalAssessment_(req, lock) {
-  lock.waitLock(20000);
-  var sheet = getSheet_(req);
-  var row = findRowOrCreate_(sheet, req);
   var caf = req.caf || {};
   var extractedKeywords = req.extractedKeywords !== undefined
     ? req.extractedKeywords
@@ -292,8 +325,11 @@ function saveFinalAssessment_(req, lock) {
   if (req.audioUrls && req.audioUrls.length) {
     patch.audioUrls = req.audioUrls.map(function (u, i) { return '[T' + (i + 1) + '] ' + u; }).join('\n');
   }
-  setValues_(sheet, row, patch);
-  return {};
+  return withSheetLock_(req, lock, function (sheet) {
+    var row = findRowOrCreate_(sheet, req);
+    setValues_(sheet, row, patch);
+    return {};
+  });
 }
 
 // ============================================================
@@ -343,16 +379,25 @@ function parseJsonLoose_(str) {
 // ============================================================
 // シート操作ユーティリティ
 // ============================================================
-function getSheet_(req) {
+function openSpreadsheet_(req) {
   var id = req.spreadsheetId || prop_('SPREADSHEET_ID');
   if (!id) throw new Error('spreadsheetId が指定されていません');
-  var ss = SpreadsheetApp.openById(id);
+  return SpreadsheetApp.openById(id);
+}
+
+function ensureSheet_(ss) {
   var sheet = ss.getSheetByName(SHEET_NAME);
   if (!sheet) {
     sheet = ss.insertSheet(SHEET_NAME);
+    ensureHeader_(sheet);
+  } else if (sheet.getLastRow() === 0) {
+    ensureHeader_(sheet);
   }
-  ensureHeader_(sheet);
   return sheet;
+}
+
+function getSheet_(req) {
+  return ensureSheet_(openSpreadsheet_(req));
 }
 
 function ensureHeader_(sheet) {
@@ -401,12 +446,29 @@ function appendRow_(sheet, obj) {
   sheet.appendRow(row);
 }
 
-function setValues_(sheet, row, patch) {
+/** 1行分をまとめて取得・更新して 1 回の setValues で書き戻す（ロック保持時間を最小化） */
+function setValues_(sheet, row, patch, appendPatch) {
   patch.updatedAt = new Date().toISOString();
+  var range = sheet.getRange(row, 1, 1, COLUMNS.length);
+  var rowVals = range.getValues()[0];
+  while (rowVals.length < COLUMNS.length) rowVals.push('');
+
+  if (appendPatch) {
+    Object.keys(appendPatch).forEach(function (k) {
+      if (appendPatch[k] === undefined || appendPatch[k] === '') return;
+      var idx = colIndex_(k) - 1;
+      var cur = String(rowVals[idx] || '');
+      rowVals[idx] = clip_(cur ? cur + '\n' + appendPatch[k] : appendPatch[k]);
+    });
+  }
+
   Object.keys(patch).forEach(function (k) {
     if (patch[k] === undefined) return;
-    sheet.getRange(row, colIndex_(k)).setValue(clip_(patch[k]));
+    var idx = colIndex_(k) - 1;
+    rowVals[idx] = clip_(patch[k]);
   });
+
+  range.setValues([rowVals]);
 }
 
 function appendCell_(sheet, row, key, line) {
